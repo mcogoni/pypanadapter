@@ -6,30 +6,9 @@ import pyqtgraph as pg
 import pyaudio
 from PyQt4 import QtCore, QtGui
 
-FS = 2.4e6 #Hz
-F_SDR = 8.8315e6 # center frequency in Hz
-N_AVG = 1
-CHUNKSZ = 256 #samples
-
-class MicrophoneRecorder():
-    def __init__(self, signal):
-        self.signal = signal
-        self.p = pyaudio.PyAudio()
-        self.stream = self.p.open(format=pyaudio.paInt16,
-                            channels=1,
-                            rate=FS,
-                            input=True,
-                            frames_per_buffer=CHUNKSZ)
-
-    def read(self):
-        data = self.stream.read(CHUNKSZ)
-        y = np.fromstring(data, 'int16')
-        self.signal.emit(y)
-
-    def close(self):
-        self.stream.stop_stream()
-        self.stream.close()
-        self.p.terminate()
+FS = 2.4e6 # Sampling Frequency of the RTL-SDR card (in Hz) # DON'T GO TOO LOW, QUALITY ISSUES ARISE
+F_SDR = 8.8315e6 # center frequency in Hz # THIS IS FOR OLD KENWOOD RADIOS LIKE THE TS-180S (WIDE BAND IF OUTPUT)
+N_AVG = 1 # averaging over how many spectra
 
 class RTLSDR():
     def __init__(self, signal):
@@ -48,7 +27,6 @@ class RTLSDR():
         self.sdr.close()
 
 
-
 class SpectrogramWidget(pg.PlotWidget):
     read_collected = QtCore.pyqtSignal(np.ndarray)
     def __init__(self):
@@ -60,8 +38,8 @@ class SpectrogramWidget(pg.PlotWidget):
         self.spectrum = pg.PlotItem()
         self.plotwidget1.addItem(self.waterfall)
     
-        self.N_FFT = 16384
-        self.N_WIN = 1024
+        self.N_FFT = 16384 # FFT bins
+        self.N_WIN = 1024  # How many pixels to show from the FFT (around the center)
 
         self.img_array = 250*np.ones((self.N_WIN, self.N_WIN))
 
@@ -78,7 +56,6 @@ class SpectrogramWidget(pg.PlotWidget):
 
         # setup the correct scaling for x-axis
         self.bw_hz = FS/float(self.N_FFT) * float(self.N_WIN)/1.e6
-        #self.waterfall.translate(-1000*self.bw_hz/2,0)
         self.waterfall.scale(self.bw_hz,1)
         self.setLabel('bottom', 'Frequency', units='kHz')
         
@@ -87,8 +64,6 @@ class SpectrogramWidget(pg.PlotWidget):
         self.hideAxis("bottom")
         self.hideAxis("left")
         self.hideAxis("right")
-
-        #self.plotwidget1.hideAxis("bottom")
 
         self.show()
 
