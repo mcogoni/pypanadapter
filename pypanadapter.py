@@ -22,7 +22,7 @@ class RTLSDR():
 
     def read(self):
         samples = self.sdr.read_samples(N_AVG*w.N_FFT)
-        self.signal.emit(np.flip(samples))
+        self.signal.emit(np.flip(samples)) # IQ inversion to correct low-high frequencies
 
     def close(self):
         self.sdr.close()
@@ -47,34 +47,46 @@ class SpectrogramWidget(pg.PlotWidget):
         
         self.mode = 0 # USB=0, LSB=1: defaults to USB
         self.scroll = -1
+        
+        self.minlev = 220
+        self.maxlev = 140
 
         self.init_image()
 
-        # MATRIX Colormap
+        # RED-GREEN Colormap
         pos = np.array([0., 0.5, 1.])
         color = np.array([[0,0,0,255], [0,255,0,255], [255,0,0,255]], dtype=np.ubyte)
+
+        # MATRIX Colormap
+        pos = np.array([0., 1.])
+        color = np.array([[0,0,0,255], [0,255,0,255]], dtype=np.ubyte)
+
+        # BLUE-YELLOW-RED Colormap
+        pos = np.array([0.,                 0.4,              1.])
+        color = np.array([[0,0,90,255], [200,2020,0,255], [255,0,0,255]], dtype=np.ubyte)
+
         cmap = pg.ColorMap(pos, color)
         pg.colormap
         lut = cmap.getLookupTable(0.0, 1.0, 256)
 
         # set colormap
         self.waterfall.setLookupTable(lut)
-        self.waterfall.setLevels([220,140]) # this should be user settable!
+        self.waterfall.setLevels([self.minlev, self.maxlev])
 
         # setup the correct scaling for x-axis
         self.bw_hz = FS/float(self.N_FFT) * float(self.N_WIN)/1.e6
         self.waterfall.scale(self.bw_hz,1)
         self.setLabel('bottom', 'Frequency', units='kHz')
         
-        self.text_leftlim = pg.TextItem("%.1f kHz"%(-self.bw_hz*self.N_WIN/2.))
+        self.text_leftlim = pg.TextItem("-%.1f kHz"%(self.bw_hz*self.N_WIN/2.))
         self.text_leftlim.setParentItem(self.waterfall)
         self.plotwidget1.addItem(self.text_leftlim)
         self.text_leftlim.setPos(0, 0)
 
-        self.text_rightlim = pg.TextItem("%.1f kHz"%(self.bw_hz*self.N_WIN/2.))
+        self.text_rightlim = pg.TextItem("+%.1f kHz"%(self.bw_hz*self.N_WIN/2.))
         self.text_rightlim.setParentItem(self.waterfall)
         self.plotwidget1.addItem(self.text_rightlim)
-        self.text_rightlim.setPos(self.bw_hz*(self.N_WIN-1), 0)
+        self.text_rightlim.setPos(self.bw_hz*(self.N_WIN-64), 0)
 
         self.plotwidget1.hideAxis("left")
         self.plotwidget1.hideAxis("bottom")
@@ -98,7 +110,7 @@ class SpectrogramWidget(pg.PlotWidget):
 
     def init_ui(self):
         self.win = QtGui.QWidget()
-        self.win.setWindowTitle('WATERFALL IS0KYB')
+        self.win.setWindowTitle('PYSCOPE - IS0KYB')
         
         vbox = QtGui.QVBoxLayout()
         #self.setLayout(vbox)
@@ -112,16 +124,21 @@ class SpectrogramWidget(pg.PlotWidget):
         self.zoomoutbutton = QtGui.QPushButton("ZOOM OUT")
         self.modechange = QtGui.QPushButton("USB")
         self.invertscroll = QtGui.QPushButton("Scroll")
+        self.autolevel = QtGui.QPushButton("Auto Levels")
 
         hbox.addWidget(self.zoominbutton)
         hbox.addWidget(self.zoomoutbutton)
         hbox.addWidget(self.modechange)
         hbox.addWidget(self.invertscroll)
+        hbox.addStretch()
+
+        hbox.addWidget(self.autolevel)
+
         #vbox.addStretch()
         vbox.addLayout(hbox)
         self.win.setLayout(vbox)
 
-        self.win.setGeometry(10, 10, 1400, 900)
+        self.win.setGeometry(10, 10, 1024, 512)
         self.win.show()
 
     def qt_connections(self):
@@ -129,6 +146,7 @@ class SpectrogramWidget(pg.PlotWidget):
         self.zoomoutbutton.clicked.connect(self.on_zoomoutbutton_clicked)
         self.modechange.clicked.connect(self.on_modechange_clicked)
         self.invertscroll.clicked.connect(self.on_invertscroll_clicked)
+        self.autolevel.clicked.connect(self.on_autolevel_clicked)
 
     def on_modechange_clicked(self):
         if self.mode == 0:
@@ -138,6 +156,13 @@ class SpectrogramWidget(pg.PlotWidget):
         self.mode += 1
         if self.mode>1:
             self.mode = 0
+
+
+    def on_autolevel_clicked(self):
+        self.minlev = np.percentile(self.img_array, 95)-20
+        self.maxlev = np.percentile(self.img_array, 5)-80
+        print self.minlev, self.maxlev
+        self.waterfall.setLevels([self.minlev, self.maxlev])
 
 
     def on_invertscroll_clicked(self):
@@ -158,7 +183,7 @@ class SpectrogramWidget(pg.PlotWidget):
 
     def update(self, chunk):
         self.bw_hz = FS/float(self.N_FFT) * float(self.N_WIN)
-        self.win.setWindowTitle('WATERFALL IS0KYB - N_FFT: %d, BW: %.1f kHz' % (self.N_FFT, self.bw_hz/1000.))
+        self.win.setWindowTitle('PYSCOPE - IS0KYB - N_FFT: %d, BW: %.1f kHz' % (self.N_FFT, self.bw_hz/1000.))
 
         sample_freq, spec = welch(chunk, FS, window="hamming", nperseg=self.N_FFT,  nfft=self.N_FFT)
         spec = np.roll(spec, self.N_FFT/2, 0)[self.N_FFT/2-self.N_WIN/2:self.N_FFT/2+self.N_WIN/2]
@@ -189,9 +214,9 @@ class SpectrogramWidget(pg.PlotWidget):
         self.waterfall.setImage(self.img_array.T, autoLevels=False, opacity = 1.0, autoDownsample=True)
 
         self.text_leftlim.setPos(0, 0)
-        self.text_leftlim.setText(text="%.1f kHz"%(-self.bw_hz/2000.))
+        self.text_leftlim.setText(text="-%.1f kHz"%(self.bw_hz/2000.))
         #self.text_rightlim.setPos(self.bw_hz*1000, 0)
-        self.text_rightlim.setText(text="%.1f kHz"%(self.bw_hz/2000.))
+        self.text_rightlim.setText(text="+%.1f kHz"%(self.bw_hz/2000.))
 
 
 
@@ -215,11 +240,10 @@ if __name__ == '__main__':
 
     rtl = RTLSDR(FS, F_SDR, w.read_collected)
 
-    # time (seconds) between reads
     t = QtCore.QTimer()
     t.timeout.connect(update_mode)
     t.timeout.connect(rtl.read)
-    t.start(0.1) #QTimer takes ms
+    t.start(10) # max theoretical refresh rate 100 fps
 
     app.exec_()
     rtl.close()
