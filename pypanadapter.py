@@ -110,7 +110,7 @@ class SpectrogramWidget(pg.PlotWidget):
 
     def init_ui(self):
         self.win = QtGui.QWidget()
-        self.win.setWindowTitle('PYSCOPE - IS0KYB')
+        self.win.setWindowTitle('PEPYSCOPE - IS0KYB')
         
         vbox = QtGui.QVBoxLayout()
         #self.setLayout(vbox)
@@ -183,7 +183,7 @@ class SpectrogramWidget(pg.PlotWidget):
 
     def update(self, chunk):
         self.bw_hz = FS/float(self.N_FFT) * float(self.N_WIN)
-        self.win.setWindowTitle('PYSCOPE - IS0KYB - N_FFT: %d, BW: %.1f kHz' % (self.N_FFT, self.bw_hz/1000.))
+        self.win.setWindowTitle('PEPYSCOPE - IS0KYB - N_FFT: %d, BW: %.1f kHz' % (self.N_FFT, self.bw_hz/1000.))
 
         sample_freq, spec = welch(chunk, FS, window="hamming", nperseg=self.N_FFT,  nfft=self.N_FFT)
         spec = np.roll(spec, self.N_FFT/2, 0)[self.N_FFT/2-self.N_WIN/2:self.N_FFT/2+self.N_WIN/2]
