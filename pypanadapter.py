@@ -108,12 +108,14 @@ class SpectrogramWidget(pg.PlotWidget):
         self.decreasebutton.clicked.connect(self.on_decreasebutton_clicked)
 
     def on_increasebutton_clicked(self):
-        self.N_FFT *= 2
+        if self.N_FFT<400000:
+            self.N_FFT *= 2
         #self.waterfall.scale(0.5,1)
 
     
     def on_decreasebutton_clicked(self):
-        self.N_FFT /= 2
+        if self.N_FFT>1024:
+            self.N_FFT /= 2
         #self.waterfall.scale(2.0,1)
  
 
