@@ -1,5 +1,6 @@
 from rtlsdr import *
 from time import sleep
+import math
 import numpy as np
 from scipy.signal import welch
 import pyqtgraph as pg
@@ -11,7 +12,7 @@ F_SDR = 8.8315e6 # center frequency in Hz # THIS IS FOR OLD KENWOOD RADIOS LIKE 
 N_AVG = 1 # averaging over how many spectra
 
 class RTLSDR():
-    def __init__(self, signal):
+    def __init__(self, FS, F_SDR, signal):
         self.signal = signal
         self.sdr = RtlSdr()
         # configure device
@@ -25,6 +26,9 @@ class RTLSDR():
 
     def close(self):
         self.sdr.close()
+    
+    def changef(self, F_SDR):
+        self.sdr.center_freq = F_SDR
 
 
 class SpectrogramWidget(pg.PlotWidget):
@@ -40,6 +44,8 @@ class SpectrogramWidget(pg.PlotWidget):
     
         self.N_FFT = 16384 # FFT bins
         self.N_WIN = 1024  # How many pixels to show from the FFT (around the center)
+        
+        self.mode = 0 # USB=0, LSB=1: defaults to USB
 
         self.img_array = 250*np.ones((self.N_WIN, self.N_WIN))
         # Plot the grid
@@ -84,36 +90,59 @@ class SpectrogramWidget(pg.PlotWidget):
         self.hideAxis("left")
         self.hideAxis("right")
 
-        self.show()
+        self.win.show()
 
     def init_ui(self):
-        self.setWindowTitle('WATERFALL IS0KYB')
-        hbox = QtGui.QVBoxLayout()
-        self.setLayout(hbox)
+        self.win = QtGui.QWidget()
+        self.win.setWindowTitle('WATERFALL IS0KYB')
+        
+        vbox = QtGui.QVBoxLayout()
+        #self.setLayout(vbox)
 
         self.plotwidget1 = pg.PlotWidget()
-        hbox.addWidget(self.plotwidget1)
+        vbox.addWidget(self.plotwidget1)
 
-        self.increasebutton = QtGui.QPushButton("ZOOM IN")
-        self.decreasebutton = QtGui.QPushButton("ZOOM OUT")
+        hbox = QtGui.QHBoxLayout()
 
-        hbox.addWidget(self.increasebutton)
-        hbox.addWidget(self.decreasebutton)
+        self.zoominbutton = QtGui.QPushButton("ZOOM IN")
+        self.zoomoutbutton = QtGui.QPushButton("ZOOM OUT")
+        self.modechange = QtGui.QPushButton("USB")
+        self.button4 = QtGui.QPushButton("")
 
-        self.setGeometry(10, 10, 1400, 900)
-        self.show()
+        hbox.addWidget(self.zoominbutton)
+        hbox.addWidget(self.zoomoutbutton)
+        hbox.addWidget(self.modechange)
+        hbox.addWidget(self.button4)
+        #vbox.addStretch()
+        vbox.addLayout(hbox)
+        self.win.setLayout(vbox)
+
+        self.win.setGeometry(10, 10, 1400, 900)
+        self.win.show()
 
     def qt_connections(self):
-        self.increasebutton.clicked.connect(self.on_increasebutton_clicked)
-        self.decreasebutton.clicked.connect(self.on_decreasebutton_clicked)
+        self.zoominbutton.clicked.connect(self.on_zoominbutton_clicked)
+        self.zoomoutbutton.clicked.connect(self.on_zoomoutbutton_clicked)
+        self.modechange.clicked.connect(self.on_modechange_clicked)
 
-    def on_increasebutton_clicked(self):
+    def on_modechange_clicked(self):
+        if self.mode == 0:
+            self.modechange.setText("LSB")
+        elif self.mode == 1:
+            self.modechange.setText("USB")
+        self.mode += 1
+        if self.mode>1:
+            self.mode = 0
+
+
+
+    def on_zoominbutton_clicked(self):
         if self.N_FFT<400000:
             self.N_FFT *= 2
         #self.waterfall.scale(0.5,1)
 
     
-    def on_decreasebutton_clicked(self):
+    def on_zoomoutbutton_clicked(self):
         if self.N_FFT>1024:
             self.N_FFT /= 2
         #self.waterfall.scale(2.0,1)
@@ -121,7 +150,7 @@ class SpectrogramWidget(pg.PlotWidget):
 
     def update(self, chunk):
         self.bw_hz = FS/float(self.N_FFT) * float(self.N_WIN)
-        self.setWindowTitle('WATERFALL IS0KYB - N_FFT: %d, BW: %.1f kHz' % (self.N_FFT, self.bw_hz/1000.))
+        self.win.setWindowTitle('WATERFALL IS0KYB - N_FFT: %d, BW: %.1f kHz' % (self.N_FFT, self.bw_hz/1000.))
 
         sample_freq, spec = welch(chunk, FS, window="hamming", nperseg=self.N_FFT,  nfft=self.N_FFT)
         spec = np.roll(spec, self.N_FFT/2, 0)[self.N_FFT/2-self.N_WIN/2:self.N_FFT/2+self.N_WIN/2]
@@ -136,11 +165,17 @@ class SpectrogramWidget(pg.PlotWidget):
             if x==0 or x==self.N_WIN-1:
                 psd[x] = 0
             else:
-                psd[x] = 0
+                psd[x] = 0            
 
         # roll down one and replace leading edge with new data
         self.img_array = np.roll(self.img_array, -1, 0)
         self.img_array[-1:] = psd
+
+        for i, x in enumerate(range(0, self.N_WIN-1, ((self.N_WIN)/10))):
+            if i!=5 and i!=10:
+                for y in range(0,10):
+                    self.img_array[y,x] = 0
+
 
         self.waterfall.setImage(self.img_array.T, autoLevels=False, opacity = 1.0, autoDownsample=True)
 
@@ -150,17 +185,32 @@ class SpectrogramWidget(pg.PlotWidget):
         self.text_rightlim.setText(text="%.1f kHz"%(self.bw_hz/2000.))
 
 
+
+def update_mode():
+    global old_mode
+    global rtl
+    if w.mode!=old_mode:
+        sign = (w.mode-old_mode)
+        sign /= math.fabs(sign)
+        if sign<0:
+            sign = 0
+        rtl.changef(F_SDR-sign*3000)
+        old_mode = w.mode
+        return rtl
+
 if __name__ == '__main__':
+    old_mode = 0
     app = QtGui.QApplication([])
     w = SpectrogramWidget()
     w.read_collected.connect(w.update)
 
-    mic = RTLSDR(w.read_collected)
+    rtl = RTLSDR(FS, F_SDR, w.read_collected)
 
     # time (seconds) between reads
     t = QtCore.QTimer()
-    t.timeout.connect(mic.read)
+    t.timeout.connect(update_mode)
+    t.timeout.connect(rtl.read)
     t.start(0.1) #QTimer takes ms
 
     app.exec_()
-    mic.close()
+    rtl.close()
