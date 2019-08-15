@@ -46,15 +46,9 @@ class SpectrogramWidget(pg.PlotWidget):
         self.N_WIN = 1024  # How many pixels to show from the FFT (around the center)
         
         self.mode = 0 # USB=0, LSB=1: defaults to USB
+        self.scroll = -1
 
-        self.img_array = 250*np.ones((self.N_WIN, self.N_WIN))
-        # Plot the grid
-        for x in [0, self.N_WIN/2, self.N_WIN-1]:
-            if x==0 or x==self.N_WIN-1:
-                self.img_array[:,x] = 0
-            else:
-                self.img_array[:,x] = 0
-
+        self.init_image()
 
         # MATRIX Colormap
         pos = np.array([0., 0.5, 1.])
@@ -92,6 +86,16 @@ class SpectrogramWidget(pg.PlotWidget):
 
         self.win.show()
 
+    def init_image(self):
+        self.img_array = 250*np.ones((self.N_WIN, self.N_WIN))
+        # Plot the grid
+        for x in [0, self.N_WIN/2, self.N_WIN-1]:
+            if x==0 or x==self.N_WIN-1:
+                self.img_array[:,x] = 0
+            else:
+                self.img_array[:,x] = 0
+
+
     def init_ui(self):
         self.win = QtGui.QWidget()
         self.win.setWindowTitle('WATERFALL IS0KYB')
@@ -107,12 +111,12 @@ class SpectrogramWidget(pg.PlotWidget):
         self.zoominbutton = QtGui.QPushButton("ZOOM IN")
         self.zoomoutbutton = QtGui.QPushButton("ZOOM OUT")
         self.modechange = QtGui.QPushButton("USB")
-        self.button4 = QtGui.QPushButton("")
+        self.invertscroll = QtGui.QPushButton("Scroll")
 
         hbox.addWidget(self.zoominbutton)
         hbox.addWidget(self.zoomoutbutton)
         hbox.addWidget(self.modechange)
-        hbox.addWidget(self.button4)
+        hbox.addWidget(self.invertscroll)
         #vbox.addStretch()
         vbox.addLayout(hbox)
         self.win.setLayout(vbox)
@@ -124,6 +128,7 @@ class SpectrogramWidget(pg.PlotWidget):
         self.zoominbutton.clicked.connect(self.on_zoominbutton_clicked)
         self.zoomoutbutton.clicked.connect(self.on_zoomoutbutton_clicked)
         self.modechange.clicked.connect(self.on_modechange_clicked)
+        self.invertscroll.clicked.connect(self.on_invertscroll_clicked)
 
     def on_modechange_clicked(self):
         if self.mode == 0:
@@ -135,6 +140,9 @@ class SpectrogramWidget(pg.PlotWidget):
             self.mode = 0
 
 
+    def on_invertscroll_clicked(self):
+        self.scroll *= -1
+        self.init_image()
 
     def on_zoominbutton_clicked(self):
         if self.N_FFT<400000:
@@ -162,19 +170,20 @@ class SpectrogramWidget(pg.PlotWidget):
 
         # Plot the grid
         for x in [0, self.N_WIN/2, self.N_WIN-1]:
-            if x==0 or x==self.N_WIN-1:
-                psd[x] = 0
-            else:
-                psd[x] = 0            
+            psd[x] = 0            
 
         # roll down one and replace leading edge with new data
-        self.img_array = np.roll(self.img_array, -1, 0)
         self.img_array[-1:] = psd
+        self.img_array = np.roll(self.img_array, -1*self.scroll, 0)
 
         for i, x in enumerate(range(0, self.N_WIN-1, ((self.N_WIN)/10))):
             if i!=5 and i!=10:
-                for y in range(0,10):
-                    self.img_array[y,x] = 0
+                if self.scroll>0:
+                    for y in range(5,15):
+                        self.img_array[y,x] = 0
+                elif self.scroll<0:
+                    for y in range(-10,-2):
+                        self.img_array[y,x] = 0
 
 
         self.waterfall.setImage(self.img_array.T, autoLevels=False, opacity = 1.0, autoDownsample=True)
