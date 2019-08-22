@@ -2,14 +2,14 @@ from rtlsdr import *
 from time import sleep
 import math
 import numpy as np
-from scipy.signal import welch
+from scipy.signal import welch, decimate
 import pyqtgraph as pg
 import pyaudio
 from PyQt4 import QtCore, QtGui
 
 FS = 1.0e6 # Sampling Frequency of the RTL-SDR card (in Hz) # DON'T GO TOO LOW, QUALITY ISSUES ARISE
 F_SDR = 8.8315e6 # center frequency in Hz # THIS IS FOR OLD KENWOOD RADIOS LIKE THE TS-180S (WIDE BAND IF OUTPUT)
-N_AVG = 1 # averaging over how many spectra
+N_AVG = 32 # averaging over how many spectra
 
 class RTLSDR():
     def __init__(self, FS, F_SDR, signal):
@@ -42,9 +42,10 @@ class SpectrogramWidget(pg.PlotWidget):
         self.spectrum = pg.PlotItem()
         self.plotwidget1.addItem(self.waterfall)
     
-        self.N_FFT = 16384 # FFT bins
+        self.N_FFT = 2048 # FFT bins
         self.N_WIN = 1024  # How many pixels to show from the FFT (around the center)
-        
+        self.fft_ratio = 2.
+
         self.mode = 0 # USB=0, LSB=1: defaults to USB
         self.scroll = -1
         
@@ -74,7 +75,7 @@ class SpectrogramWidget(pg.PlotWidget):
         self.waterfall.setLevels([self.minlev, self.maxlev])
 
         # setup the correct scaling for x-axis
-        self.bw_hz = FS/float(self.N_FFT) * float(self.N_WIN)/1.e6
+        self.bw_hz = FS/float(self.N_FFT) * float(self.N_WIN)/1.e6/self.fft_ratio
         self.waterfall.scale(self.bw_hz,1)
         self.setLabel('bottom', 'Frequency', units='kHz')
         
@@ -170,20 +171,37 @@ class SpectrogramWidget(pg.PlotWidget):
         self.init_image()
 
     def on_zoominbutton_clicked(self):
-        if self.N_FFT<400000:
-            self.N_FFT *= 2
+        if self.fft_ratio<128:
+            self.fft_ratio *= 2
         #self.waterfall.scale(0.5,1)
 
     
     def on_zoomoutbutton_clicked(self):
-        if self.N_FFT>1024:
-            self.N_FFT /= 2
+        if self.fft_ratio>1:
+            self.fft_ratio /= 2
         #self.waterfall.scale(2.0,1)
  
 
+    def zoomfft(self, x, ratio = 1):
+        f_demod = 1.
+        t_total = (1/FS) * self.N_FFT * N_AVG
+        t = np.arange(0, t_total, 1 / FS)
+        lo = 2**.5 * np.exp(-2j*np.pi*f_demod * t) # local oscillator
+        x_mix = x*lo
+        
+        power2 = int(np.log2(ratio))
+        for mult in range(power2):
+            x_mix = decimate(x_mix, 2) # mix and decimate
+
+        return x_mix 
+    
+
     def update(self, chunk):
         self.bw_hz = FS/float(self.N_FFT) * float(self.N_WIN)
-        self.win.setWindowTitle('PEPYSCOPE - IS0KYB - N_FFT: %d, BW: %.1f kHz' % (self.N_FFT, self.bw_hz/1000.))
+        self.win.setWindowTitle('PEPYSCOPE - IS0KYB - N_FFT: %d, BW: %.1f kHz' % (self.N_FFT, self.bw_hz/1000./self.fft_ratio))
+
+        if self.fft_ratio>1:
+            chunk = self.zoomfft(chunk, self.fft_ratio)
 
         sample_freq, spec = welch(chunk, FS, window="hamming", nperseg=self.N_FFT,  nfft=self.N_FFT)
         spec = np.roll(spec, self.N_FFT/2, 0)[self.N_FFT/2-self.N_WIN/2:self.N_FFT/2+self.N_WIN/2]
@@ -214,9 +232,9 @@ class SpectrogramWidget(pg.PlotWidget):
         self.waterfall.setImage(self.img_array.T, autoLevels=False, opacity = 1.0, autoDownsample=True)
 
         self.text_leftlim.setPos(0, 0)
-        self.text_leftlim.setText(text="-%.1f kHz"%(self.bw_hz/2000.))
+        self.text_leftlim.setText(text="-%.1f kHz"%(self.bw_hz/2000./self.fft_ratio))
         #self.text_rightlim.setPos(self.bw_hz*1000, 0)
-        self.text_rightlim.setText(text="+%.1f kHz"%(self.bw_hz/2000.))
+        self.text_rightlim.setText(text="+%.1f kHz"%(self.bw_hz/2000./self.fft_ratio))
 
 
 
