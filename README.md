@@ -14,6 +14,8 @@ This panadapter has been developed to achieve several goals:
 
 ![pypanadapter on 20m at night](https://github.com/mcogoni/pypanadapter/blob/master/pypanadapter.png)
 
+Watch it in action: https://www.youtube.com/watch?v=Z9mr08ou5NI
+
 To run it, you need a Linux PC and a few libraries such as numpy, scipy, pyqtgraph, pyqt, etc (I'll try to document the requirements better in the future).
 
 All experiments so far have been conducted with a KENWOOD TS-180S (single conversion with IF at 8.83 MHz) and a RTL-SDR v3. So the hardware requirements are minimal.
