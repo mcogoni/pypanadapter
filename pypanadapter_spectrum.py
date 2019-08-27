@@ -4,12 +4,13 @@ import math
 import numpy as np
 from scipy.signal import welch, decimate
 import pyqtgraph as pg
-import pyaudio
+#import pyaudio
 from PyQt4 import QtCore, QtGui
 
 FS = 2.4e6 # Sampling Frequency of the RTL-SDR card (in Hz) # DON'T GO TOO LOW, QUALITY ISSUES ARISE
 F_SDR = 8.8315e6 # center frequency in Hz # THIS IS FOR OLD KENWOOD RADIOS LIKE THE TS-180S (WIDE BAND IF OUTPUT)
-N_AVG = 64 # averaging over how many spectra
+#F_SDR = 45.0515e6 # center frequency in Hz # THIS IS FOR OLD KENWOOD RADIOS LIKE THE TS-180S (WIDE BAND IF OUTPUT)
+N_AVG = 128 # averaging over how many spectra
 
 class RTLSDR():
     def __init__(self, FS, F_SDR, signal):
@@ -21,7 +22,7 @@ class RTLSDR():
         self.sdr.center_freq = F_SDR
 
     def read(self):
-        samples = self.sdr.read_samples(N_AVG*w.N_FFT)
+        samples = self.sdr.read_samples(w.N_AVG*w.N_FFT)
         self.signal.emit(np.flip(samples)) # IQ inversion to correct low-high frequencies
 
     def close(self):
@@ -42,12 +43,13 @@ class SpectrogramWidget(pg.PlotWidget):
         self.plotwidget1.addItem(self.waterfall)
         self.spectrum_plot = self.plotwidget2.plot()
         self.plotwidget2.setYRange(-250, -100, padding=0.)
-        self.plotwidget2.showGrid(x=True, y=True)
+        #self.plotwidget2.showGrid(x=True, y=True)
 
-        pg.setConfigOptions(antialias=True)
+        pg.setConfigOptions(antialias=False)
 
         self.N_FFT = 2048 # FFT bins
-        self.N_WIN = 1424  # How many pixels to show from the FFT (around the center)
+        self.N_WIN = 1024  # How many pixels to show from the FFT (around the center)
+        self.N_AVG = N_AVG
         self.fft_ratio = 2.
 
         self.mode = 0 # USB=0, LSB=1: defaults to USB
@@ -110,8 +112,10 @@ class SpectrogramWidget(pg.PlotWidget):
         # Plot the grid
         for x in [0, self.N_WIN/2, self.N_WIN-1]:
             if x==0 or x==self.N_WIN-1:
+                #pass
                 self.img_array[:,x] = 0
             else:
+                #pass
                 self.img_array[:,x] = 0
 
 
@@ -132,6 +136,8 @@ class SpectrogramWidget(pg.PlotWidget):
 
         self.zoominbutton = QtGui.QPushButton("ZOOM IN")
         self.zoomoutbutton = QtGui.QPushButton("ZOOM OUT")
+        self.avg_increase_button = QtGui.QPushButton("AVG +")
+        self.avg_decrease_button = QtGui.QPushButton("AVG -")
         self.modechange = QtGui.QPushButton("USB")
         self.invertscroll = QtGui.QPushButton("Scroll")
         self.autolevel = QtGui.QPushButton("Auto Levels")
@@ -143,6 +149,8 @@ class SpectrogramWidget(pg.PlotWidget):
         hbox.addStretch()
 
         hbox.addWidget(self.autolevel)
+        hbox.addWidget(self.avg_increase_button)
+        hbox.addWidget(self.avg_decrease_button)
 
         #vbox.addStretch()
         vbox.addLayout(hbox)
@@ -156,7 +164,20 @@ class SpectrogramWidget(pg.PlotWidget):
         self.zoomoutbutton.clicked.connect(self.on_zoomoutbutton_clicked)
         self.modechange.clicked.connect(self.on_modechange_clicked)
         self.invertscroll.clicked.connect(self.on_invertscroll_clicked)
+        self.avg_increase_button.clicked.connect(self.on_avg_increase_clicked)
+        self.avg_decrease_button.clicked.connect(self.on_avg_decrease_clicked)
         self.autolevel.clicked.connect(self.on_autolevel_clicked)
+
+    def on_avg_increase_clicked(self):
+        if self.N_AVG<512:
+            self.N_AVG *= 2
+        print self.N_AVG
+
+    def on_avg_decrease_clicked(self):
+        if self.N_AVG>1:
+            self.N_AVG /= 2
+        print self.N_AVG
+
 
     def on_modechange_clicked(self):
         if self.mode == 0:
@@ -169,16 +190,18 @@ class SpectrogramWidget(pg.PlotWidget):
 
 
     def on_autolevel_clicked(self):
-        tmp_array = self.img_array[self.img_array>0]
+        tmp_array = np.copy(self.img_array[self.img_array>0])
         tmp_array = tmp_array[tmp_array<250]
+        tmp_array = tmp_array[:]
+        print tmp_array.shape
 
         self.minminlev = np.percentile(tmp_array, 99)
         self.minlev = np.percentile(tmp_array, 80)
-        self.maxlev = np.percentile(tmp_array, 0)
+        self.maxlev = np.percentile(tmp_array, 0.3)
         print self.minlev, self.maxlev
         self.waterfall.setLevels([self.minlev, self.maxlev])
 
-        self.plotwidget2.setYRange(-self.minminlev, -self.maxlev, padding=0.1)
+        self.plotwidget2.setYRange(-self.minminlev, -self.maxlev, padding=0.3)
 
 
 
@@ -187,7 +210,7 @@ class SpectrogramWidget(pg.PlotWidget):
         self.init_image()
 
     def on_zoominbutton_clicked(self):
-        if self.fft_ratio<128:
+        if self.fft_ratio<512:
             self.fft_ratio *= 2
         #self.waterfall.scale(0.5,1)
 
@@ -200,7 +223,7 @@ class SpectrogramWidget(pg.PlotWidget):
 
     def zoomfft(self, x, ratio = 1):
         f_demod = 1.
-        t_total = (1/FS) * self.N_FFT * N_AVG
+        t_total = (1/FS) * self.N_FFT * self.N_AVG
         t = np.arange(0, t_total, 1 / FS)
         lo = 2**.5 * np.exp(-2j*np.pi*f_demod * t) # local oscillator
         x_mix = x*lo
@@ -229,6 +252,7 @@ class SpectrogramWidget(pg.PlotWidget):
 
         # Plot the grid
         for x in [0, self.N_WIN/2, self.N_WIN-1]:
+            #pass
             psd[x] = 0            
 
         # roll down one and replace leading edge with new data
@@ -239,11 +263,14 @@ class SpectrogramWidget(pg.PlotWidget):
             if i!=5 and i!=10:
                 if self.scroll>0:
                     for y in range(5,15):
+                        #pass
                         self.img_array[y,x] = 0
                 elif self.scroll<0:
                     for y in range(-10,-2):
+                        #pass
                         self.img_array[y,x] = 0
 
+        #self.spectrum_plot.plot()
 
         self.waterfall.setImage(self.img_array.T, autoLevels=False, opacity = 1.0, autoDownsample=True)
 
@@ -252,18 +279,11 @@ class SpectrogramWidget(pg.PlotWidget):
         #self.text_rightlim.setPos(self.bw_hz*1000, 0)
         self.text_rightlim.setText(text="+%.1f kHz"%(self.bw_hz/2000./self.fft_ratio))
 
-        
-        #self.plotwidget2.clear()
-        #self.plotwidget2.plot(np.arange(0,1024), -psd, pen=(255,0,0))
-        try:
-            pass
-            #self.plotwidget2.plot(np.arange(0,1024), -self.old_psd, pen=(0,0,0))
-            #self.spectrum_plot.setData(np.arange(0,1024), -old_psd, pen="k")
-        except:
-            pass
-        #self.plotwidget2.plot(np.arange(0,1024), -psd, pen=(0,200,0))
         self.spectrum_plot.setData(np.arange(0,psd.shape[0]), -psd, pen="g")
-        #self.old_psd = np.copy(psd)
+
+        #self.plotwidget2.plot(x=[0,0], y=[-240,0], pen=pg.mkPen('r', width=1))
+        #self.plotwidget2.plot(x=[self.N_WIN/2, self.N_WIN/2], y=[-240,0], pen=pg.mkPen('r', width=1))
+        #self.plotwidget2.plot(x=[self.N_WIN-1, self.N_WIN-1], y=[-240,0], pen=pg.mkPen('r', width=1))
 
 
 
@@ -290,7 +310,7 @@ if __name__ == '__main__':
     t = QtCore.QTimer()
     t.timeout.connect(update_mode)
     t.timeout.connect(rtl.read)
-    t.start(10) # max theoretical refresh rate 100 fps
+    t.start(50) # max theoretical refresh rate 100 fps
 
     app.exec_()
     rtl.close()
